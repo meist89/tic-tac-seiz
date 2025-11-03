@@ -1,136 +1,107 @@
 package com.tictactoe;
 
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
 import java.io.*;
 import java.net.*;
-import java.util.Scanner;
+import java.util.*;
 
 public class TicTacToeClient {
-    private static final String SERVER_ADDRESS = "localhost"; // Indirizzo del server
-    private static final int SERVER_PORT = 12345; // Porta del server
-    private static Socket socket;
-    private static BufferedReader in;
-    private static PrintWriter out;
-    private static Scanner scanner;
-    private static String playerSymbol = ""; // Simbolo del giocatore (X o O)
-    private static boolean gameRunning = true;
-    
+    private static final String SERVER_ADDRESS = "localhost";
+    private static final int SERVER_PORT = 12345;
+    private Socket socket;
+    private BufferedReader in;
+    private PrintWriter out;
+    private JFrame frame;
+    private JButton[] buttons = new JButton[9];
+    private boolean myTurn = false;
+    private String playerSymbol;
+    private String opponentSymbol;
+
     public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> new TicTacToeClient().start());
+    }
+
+    public void start() {
         try {
-            // Connessione al server
             socket = new Socket(SERVER_ADDRESS, SERVER_PORT);
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             out = new PrintWriter(socket.getOutputStream(), true);
-            scanner = new Scanner(System.in);
 
-            // Attendere la risposta iniziale dal server
-            String serverResponse = in.readLine();
-            if ("WAIT".equals(serverResponse)) {
-                System.out.println("In attesa di un secondo giocatore...");
-                serverResponse = in.readLine(); // Dopo che il secondo giocatore si è connesso
-                if ("READY".equals(serverResponse)) {
-                    System.out.println("Partita iniziata!");
-                    // Giocatore 1 inizia sempre
-                    playerSymbol = "X";
-                    System.out.println("Sei il Giocatore 1 (X). Buona fortuna!");
-                    startGame();
-                }
+            frame = new JFrame("Tic Tac Toe");
+            frame.setLayout(new GridLayout(3, 3));
+            frame.setSize(300, 300);
+            frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+            for (int i = 0; i < 9; i++) {
+                buttons[i] = new JButton("");
+                buttons[i].setFont(new Font("Arial", Font.PLAIN, 60));
+                buttons[i].setEnabled(false);
+                int index = i;
+                buttons[i].addActionListener(e -> makeMove(index));
+                frame.add(buttons[i]);
             }
 
+            frame.setVisible(true);
+            new ServerListener().start();
         } catch (IOException e) {
-            System.out.println("Errore di connessione: " + e.getMessage());
-        } finally {
-            closeConnections();
+            e.printStackTrace();
         }
     }
 
-    private static void startGame() {
-        while (gameRunning) {
+    private void makeMove(int index) {
+        if (myTurn && buttons[index].getText().equals("")) {
+            out.println(index);
+            myTurn = false;
+        }
+    }
+
+    private class ServerListener extends Thread {
+        @Override
+        public void run() {
             try {
-                // Mostra la griglia e il turno
-                printGameBoard();
-                System.out.println("Tocca a te, scegli una casella (0-8):");
-                int move = scanner.nextInt();
-                scanner.nextLine(); // Consuma la newline
-
-                // Invia la mossa al server
-                out.println(move);
-                
-                // Ricevi la risposta del server
-                String response = in.readLine();
-                handleServerResponse(response);
-
-                // Se la partita è finita, chiudi la connessione
-                if (!gameRunning) {
-                    break;
+                String response;
+                while ((response = in.readLine()) != null) {
+                    if (response.equals("WAIT")) {
+                        // Attendi il secondo giocatore
+                    } else if (response.equals("READY")) {
+                        myTurn = true;
+                        playerSymbol = "1"; // O 2 dipende dalla posizione
+                        opponentSymbol = playerSymbol.equals("1") ? "2" : "1";
+                        for (JButton button : buttons) {
+                            button.setEnabled(true);
+                        }
+                    } else {
+                        processUpdate(response);
+                    }
                 }
             } catch (IOException e) {
-                System.out.println("Errore di comunicazione con il server: " + e.getMessage());
-                gameRunning = false;
+                e.printStackTrace();
             }
         }
-    }
 
-    private static void printGameBoard() {
-        System.out.println("\nGriglia di gioco:");
-        String boardState = getBoardState();
-        String[] cells = boardState.split(",");
-        for (int i = 0; i < 9; i++) {
-            String symbol = "";
-            if (cells[i].equals("1")) symbol = "X";
-            else if (cells[i].equals("2")) symbol = "O";
-            System.out.print((symbol.isEmpty() ? "-" : symbol) + " ");
-            if (i % 3 == 2) {
-                System.out.println();
+        private void processUpdate(String response) {
+            String[] parts = response.split(",");
+            for (int i = 0; i < 9; i++) {
+                String symbol = parts[i];
+                if (symbol.equals("1")) {
+                    buttons[i].setText("X");
+                } else if (symbol.equals("2")) {
+                    buttons[i].setText("O");
+                } else {
+                    buttons[i].setText("");
+                }
             }
-        }
-    }
 
-    private static String getBoardState() {
-        StringBuilder board = new StringBuilder();
-        try {
-            // Ricevi l'aggiornamento dalla parte server
-            String update = in.readLine();
-            if (update != null) {
-                return update.split(",")[0]; // Ottieni solo le 9 celle della griglia
+            String result = parts[9];
+            if (result.equals("L")) {
+                JOptionPane.showMessageDialog(frame, "Hai perso!");
+            } else if (result.equals("P")) {
+                JOptionPane.showMessageDialog(frame, "Pareggio!");
+            } else if (result.equals("W")) {
+                JOptionPane.showMessageDialog(frame, "Hai vinto!");
             }
-        } catch (IOException e) {
-            System.out.println("Errore nel ricevere l'aggiornamento della griglia: " + e.getMessage());
-        }
-        return "";
-    }
-
-    private static void handleServerResponse(String response) {
-        switch (response) {
-            case "OK":
-                System.out.println("Mossa valida! Ora tocca all'avversario.");
-                break;
-            case "KO":
-                System.out.println("Mossa non valida! La casella è già occupata o l'indice non è valido.");
-                break;
-            case "W":
-                System.out.println("Hai vinto!");
-                gameRunning = false;
-                break;
-            case "P":
-                System.out.println("La partita è finita in pareggio!");
-                gameRunning = false;
-                break;
-            default:
-                System.out.println("Risposta del server non prevista: " + response);
-                break;
-        }
-    }
-
-    private static void closeConnections() {
-        try {
-            if (socket != null && !socket.isClosed()) {
-                socket.close();
-            }
-            if (scanner != null) {
-                scanner.close();
-            }
-        } catch (IOException e) {
-            System.out.println("Errore nella chiusura della connessione: " + e.getMessage());
         }
     }
 }
